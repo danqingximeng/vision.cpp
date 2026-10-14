@@ -1,0 +1,61 @@
+diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+index 7e028bd..f04f464 100644
+--- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
++++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+@@ -14398,11 +14398,15 @@ static ggml_status ggml_backend_vk_graph_compute(ggml_backend_t backend, ggml_cg
+     // (and scaled down based on model size, so smaller models submit earlier).
+     // Also submit at least every 100 nodes, in case there are workloads without as much matmul.
+     int nodes_per_submit = 100;
++    if (const char * e = getenv("VISP_NODES_PER_SUBMIT")) { nodes_per_submit = atoi(e); }
++    static bool mul_bytes_env_logged = false;
+     int submitted_nodes = 0;
+     int submit_count = 0;
+     uint64_t mul_mat_bytes = 0;
+     uint64_t total_mul_mat_bytes = 0;
+     uint64_t mul_mat_bytes_per_submit = std::min(uint64_t(100*1000*1000), ctx->last_total_mul_mat_bytes / 40u);
++    if (const char * e = getenv("VISP_MUL_MAT_BYTES_PER_SUBMIT")) { mul_mat_bytes_per_submit = strtoull(e, nullptr, 10); }
++    if (!mul_bytes_env_logged) { mul_bytes_env_logged = true; fprintf(stderr, "[vk-debug] nodes_per_submit=%d mul_mat_bytes_per_submit=%llu last_total=%llu\n", nodes_per_submit, (unsigned long long)mul_mat_bytes_per_submit, (unsigned long long)ctx->last_total_mul_mat_bytes); }
+     for (int i = 0; i < cgraph->n_nodes; i++) {
+         if (first_node_in_batch) {
+             submit_node_idx = i;
+@@ -14607,6 +14611,40 @@ static ggml_status ggml_backend_vk_graph_compute(ggml_backend_t backend, ggml_cg
+                       (i + ctx->num_additional_fused_ops >= last_node) ||
+                       (almost_ready && !ctx->almost_ready_fence_pending);
+ 
++        {
++            static bool hist_done = false;
++            static const char * submit_before = getenv("VISP_SUBMIT_BEFORE_OP");
++            static const char * submit_after  = getenv("VISP_SUBMIT_AFTER_OP");
++            static int idx_lo = getenv("VISP_SUBMIT_OP_IDX_LO") ? atoi(getenv("VISP_SUBMIT_OP_IDX_LO")) : -1;
++            static int idx_hi = getenv("VISP_SUBMIT_OP_IDX_HI") ? atoi(getenv("VISP_SUBMIT_OP_IDX_HI")) : 1<<30;
++            if (!hist_done) {
++                hist_done = true;
++                std::map<int,int> hist;
++                for (int k = 0; k < cgraph->n_nodes; k++) hist[(int)cgraph->nodes[k]->op]++;
++                for (auto & kv : hist) fprintf(stderr, "[vk-hist] %-20s %d\n", ggml_op_name((ggml_op)kv.first), kv.second);
++            }
++            const char * opn = ggml_op_name(cgraph->nodes[i]->op);
++            bool in_range = (i >= idx_lo && i < idx_hi);
++            static int all_from = getenv("VISP_SUBMIT_ALL_FROM") ? atoi(getenv("VISP_SUBMIT_ALL_FROM")) : -1;
++            static int all_until = getenv("VISP_SUBMIT_ALL_UNTIL") ? atoi(getenv("VISP_SUBMIT_ALL_UNTIL")) : -1;
++            static int at_idx = getenv("VISP_SUBMIT_AT_IDX") ? atoi(getenv("VISP_SUBMIT_AT_IDX")) : -1;
++            if (at_idx >= 0 && i == at_idx) submit = true;
++            if (getenv("VISP_DUMP_TAIL") && i >= 3295) {
++                fprintf(stderr, "[tail] idx=%d %s %s\n", i, ggml_op_name(cgraph->nodes[i]->op), cgraph->nodes[i]->name);
++            }
++            if (all_from >= 0 && i >= all_from) submit = true;
++            if (all_until >= 0 && i < all_until) submit = true;
++            if (submit_before && in_range && strcmp(opn, submit_before) == 0) submit = true;
++            if (submit_after && in_range && strcmp(opn, submit_after) == 0) submit = true;
++            if (getenv("VISP_DUMP_OP_IDX") && strcmp(opn, "CONV_2D") == 0) {
++                fprintf(stderr, "[conv] idx=%d Cout=%d Cin=%d KW=%d KH=%d N=%d OW=%d OH=%d s0=%d p0=%d\n",
++                    i, (int)cgraph->nodes[i]->ne[2], (int)cgraph->nodes[i]->src[1]->ne[2],
++                    (int)cgraph->nodes[i]->src[0]->ne[0], (int)cgraph->nodes[i]->src[0]->ne[1],
++                    (int)cgraph->nodes[i]->src[1]->ne[3], (int)cgraph->nodes[i]->ne[0], (int)cgraph->nodes[i]->ne[1],
++                    (int)ggml_get_op_params_i32(cgraph->nodes[i], 0), (int)ggml_get_op_params_i32(cgraph->nodes[i], 2));
++            }
++        }
++
+         bool enqueued = ggml_vk_build_graph(ctx, cgraph, i, cgraph->nodes[submit_node_idx], submit_node_idx, i + ctx->num_additional_fused_ops >= last_node, almost_ready, submit);
+ 
+         if (vk_perf_logger_enabled && enqueued) {

@@ -1,0 +1,27 @@
+diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+index 7e028bd..0c44a87 100644
+--- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
++++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+@@ -16224,7 +16224,7 @@ static void ggml_vk_check_results_0(ggml_backend_vk_context * ctx, ggml_cgraph *
+     VK_LOG_DEBUG("ggml_vk_check_results_0(" << tensor->name << ")");
+ 
+     struct ggml_init_params iparams = {
+-        /*.mem_size   =*/ 2ul*1024ul*1024ul*1024ul,
++        /*.mem_size   =*/ 6ul*1024ul*1024ul*1024ul,
+         /*.mem_buffer =*/ NULL,
+         /*.no_alloc   =*/ false,
+     };
+@@ -16579,6 +16579,13 @@ static void ggml_vk_check_results_0(ggml_backend_vk_context * ctx, ggml_cgraph *
+             const int32_t d0 = tensor->op_params[4];
+             const int32_t d1 = tensor->op_params[5];
+             tensor_clone = ggml_conv_2d(ggml_ctx, src_clone[0], src_clone[1], s0, s1, p0, p1, d0, d1);
++        } else if (tensor->op == GGML_OP_CONV_2D_DEFORM) {
++            const int32_t s0 = tensor->op_params[0];
++            const int32_t s1 = tensor->op_params[1];
++            const int32_t p0 = tensor->op_params[2];
++            const int32_t p1 = tensor->op_params[3];
++            tensor_clone = ggml_conv_2d_deform(
++                ggml_ctx, src_clone[0], src_clone[1], src_clone[2], src_clone[3], s0, s1, p0, p1);
+         } else if (tensor->op == GGML_OP_CONV_2D_DW) {
+             const int32_t s0 = tensor->op_params[0];
+             const int32_t s1 = tensor->op_params[1];
