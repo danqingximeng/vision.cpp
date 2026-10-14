@@ -100,6 +100,8 @@ patches/
   ggml-vulkan-checker.patch  让 CHECK_RESULTS 支持 CONV_2D_DEFORM + 放大其内存池
 scripts/
   gpu_test.sh  round4.sh  round5.sh   自动化测试脚本（每个用例后做 GPU 健康检查）
+  // 里面的路径（模型、输入图、输出目录）是调查时的 /tmp/opencode 布局，用前按需改；
+  // gpu_test.sh 支持 VISION_CLI / MODEL / OUTDIR 覆盖，默认 CLI 指向 build/bin/vision-cli
 outputs/
   <model>-cpu.png / <model>-gpu-broken.png / <model>-gpu-fixed.png   三模型对照出图
 ```
