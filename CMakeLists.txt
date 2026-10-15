@@ -141,6 +141,7 @@ set(BUILD_SHARED_LIBS ${BUILD_SHARED_LIBS_SAVED})
 
 # Vision.cpp libraries and executables
 
+add_subdirectory(depend/cpp-httplib)
 add_subdirectory(src/visp)
 add_subdirectory(src/cli)
 

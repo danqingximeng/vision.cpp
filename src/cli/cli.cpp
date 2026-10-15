@@ -1,3 +1,4 @@
+#include "cli-args.h"
 #include "util/math.h"
 #include "util/string.h"
 #include "visp/vision.h"
@@ -13,24 +14,6 @@
 namespace visp {
 using std::filesystem::path;
 
-enum class cli_command { none, sam, birefnet, depth_anything, migan, esrgan };
-
-struct cli_args {
-    cli_command command = cli_command::none;
-    std::vector<char const*> inputs;   // -i --input
-    char const* output = "output.png"; // -o --output
-    char const* model = nullptr;       // -m --model
-    std::vector<char const*> prompt;   // -p --prompt
-    // int threads = -1; // -t --threads
-    // bool verbose = false; // -v --verbose
-    std::optional<backend_type> bknd_type; // -b --backend
-    // std::string_view device = 0; // -d --device
-    // ggml_type float_type = GGML_TYPE_COUNT; // -f32 -f16
-
-    char const* composite = nullptr; // --composite
-    int tile_size = -1;              // --tile
-};
-
 void print_usage() {
     char const* const usage = R"(
 Usage: vision-cli <command> [options]
@@ -41,6 +24,7 @@ Commands:
     depthany  - Depth-Anything depth estimation
     migan     - MI-GAN inpainting
     esrgan    - ESRGAN/Real-ESRGAN upscaling
+    serve     - Start an HTTP server, load the model once, serve inference requests
 
 Options:
     -i, --input <image1> [<image2> ...]  Input image(s)
@@ -51,12 +35,15 @@ Options:
     -h, --help                           Print usage and exit
     --composite <file>                   Composite input image with mask
     --tile <size>                        Tile size to split large images
+    --host <addr>                        Server bind address (serve only, default: 127.0.0.1)
+    --port <n>                           Server port (serve only, default: 8180)
 
 Examples:
     vision-cli sam -m MobileSAM-F16.gguf -i image.jpg -p 100 200 -o mask.png
     vision-cli birefnet -m BiRefNet-F16.gguf -i image.jpg -o mask.png --composite output.png
     vision-cli migan -m MIGAN-F16.gguf -i image.jpg mask.png -o output.png
     vision-cli esrgan -m ESRGAN-x4-F16.gguf -i image.jpg -o upscaled.png
+    vision-cli serve -m RMBG-2.0-F16.gguf -b gpu --port 8180
 )";
     printf("%s", usage);
 }
@@ -126,6 +113,8 @@ cli_args cli_parse(int argc, char** argv) {
         r.command = cli_command::migan;
     } else if (arg1 == "esrgan") {
         r.command = cli_command::esrgan;
+    } else if (arg1 == "serve") {
+        r.command = cli_command::serve;
     } else if (arg1 == "-h" || arg1 == "--help") {
         print_usage();
     } else {
@@ -156,6 +145,10 @@ cli_args cli_parse(int argc, char** argv) {
             r.composite = next_arg(argc, argv, i);
         } else if (arg == "--tile") {
             r.tile_size = parse_int(next_arg(argc, argv, i));
+        } else if (arg == "--host") {
+            r.host = next_arg(argc, argv, i);
+        } else if (arg == "--port") {
+            r.port = parse_int(next_arg(argc, argv, i));
         } else if (arg.starts_with("-")) {
             throw except("Unknown argument: {}\n{}", arg, short_usage);
         }
@@ -168,6 +161,7 @@ void run_birefnet(cli_args const&);
 void run_depth_anything(cli_args const&);
 void run_migan(cli_args const&);
 void run_esrgan(cli_args const&);
+void run_server(cli_args const&);
 
 } // namespace visp
 
@@ -186,6 +180,7 @@ int main(int argc, char** argv) {
             case cli_command::depth_anything: run_depth_anything(args); break;
             case cli_command::migan: run_migan(args); break;
             case cli_command::esrgan: run_esrgan(args); break;
+            case cli_command::serve: run_server(args); break;
             case cli_command::none: break;
         }
 
