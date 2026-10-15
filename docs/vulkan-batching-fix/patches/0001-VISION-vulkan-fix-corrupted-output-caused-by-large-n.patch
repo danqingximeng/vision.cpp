@@ -1,0 +1,48 @@
+From fd0facaa7e063a1516713e34126b10d1475fa2e2 Mon Sep 17 00:00:00 2001
+From: danqingximeng <danqingximeng@outlook.com>
+Date: Wed, 14 Oct 2026 11:27:51 +0800
+Subject: [PATCH] [VISION] vulkan : fix corrupted output caused by large node
+ batches
+
+Batching up to 100 nodes into one command buffer produces wrong results on
+BiRefNet-style vision graphs (RMBG-2.0, BiRefNet-toonout, BiRefNet non-lite):
+GPU output has IoU ~0.16 against the CPU backend, with banded artifacts.
+Batches of 1/2/4 nodes match the CPU reference exactly; 8/16/32/100 degrade
+to IoU 0.43/0.71/0.16/0.16.
+
+The root cause inside the batched submit path is not identified yet, so keep
+the default batch at 2 (11.0s -> 12.4s per 1024x1024 inference on RX 550)
+until it is. GGML_VK_NODES_PER_SUBMIT restores the old value for bisecting.
+
+Investigation notes, probe patches and reference outputs live in
+docs/vulkan-batching-fix/ of vision.cpp.
+---
+ ggml/src/ggml-vulkan/ggml-vulkan.cpp | 12 +++++++++++-
+ 1 file changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+index 7e028bdcc..b47cab8c4 100644
+--- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
++++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+@@ -14397,7 +14397,17 @@ static ggml_status ggml_backend_vk_graph_compute(ggml_backend_t backend, ggml_cg
+     // Estimate the amount of matmul work by looking at the weight matrix size, and submit every 100MB
+     // (and scaled down based on model size, so smaller models submit earlier).
+     // Also submit at least every 100 nodes, in case there are workloads without as much matmul.
+-    int nodes_per_submit = 100;
++    //
++    // NOTE: 100 (and anything >= 8 on the graphs tested) corrupts the output on BiRefNet-style
++    // vision graphs: batching nodes into one command buffer produces wrong results, while
++    // batches of 1/2/4 nodes match the CPU reference exactly. Batches of 8/16/32/100 give
++    // IoU 0.43/0.71/0.16/0.16 against CPU. The root cause inside the batched submit path is
++    // not identified yet, so this stays small until it is. See docs/vulkan-batching-fix/ in vision.cpp.
++    // Override with GGML_VK_NODES_PER_SUBMIT for bisecting.
++    int nodes_per_submit = 2;
++    if (const char * env = getenv("GGML_VK_NODES_PER_SUBMIT")) {
++        nodes_per_submit = atoi(env);
++    }
+     int submitted_nodes = 0;
+     int submit_count = 0;
+     uint64_t mul_mat_bytes = 0;
+-- 
+2.47.3
+

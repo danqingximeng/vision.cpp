@@ -126,3 +126,17 @@ fork（/opt）里钉的旧 llama.cpp 上的 `nodes_per_submit=2` 修复继续有
 7. `supports_op` 放宽：IM2COL 与新拆出的 `GGML_OP_CONV_2D_DEFORM` 分支允许
    `ggml_is_contiguous_channels`（src0/src1/dst 都可能 cwhn）；CONV_2D/TRANSPOSE 保持 upstream 的严格连续要求。
 8. `GGML_VK_MAX_NODES_PER_SUBMIT` 是上游环境变量（默认 100），与 fork 里的 `GGML_VK_NODES_PER_SUBMIT` 不同名。
+
+## 在旧基线复现 / 应用 nodes_per_submit 修复（fd0facaa7）
+
+`depend/llama` 上的修复提交 `fd0facaa7` 只存在于 /opt 本地（Acly 的 llama.cpp 上），
+没有推到任何远端。已把它导出为 patch 存进仓库：
+
+    docs/vulkan-batching-fix/patches/0001-VISION-vulkan-fix-corrupted-output-caused-by-large-n.patch
+
+在 Acly 旧基线（`624733d63` + Acly 两个 [VISION] 提交）的 llama.cpp 上重放：
+
+    git am docs/vulkan-batching-fix/patches/0001-VISION-vulkan-fix-corrupted-output-caused-by-large-n.patch
+
+已验证 `git am` 到 `fd0facaa7^` 后的树与 `fd0facaa7` 完全一致（roundtrip 检查）。
+注意：新基线（vision-ops）不需要此补丁——上游重写批次切分后该问题不复现。
