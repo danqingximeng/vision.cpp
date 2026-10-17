@@ -17,6 +17,7 @@ tests/reference
 *.tar.gz
 *.egg-info
 /*.png
+/research-assets
 __pycache__
 
 # Don't sync Python dependencies for now, latest versions should work

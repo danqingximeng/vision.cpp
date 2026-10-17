@@ -198,8 +198,8 @@ image_data migan_compute(migan_model& model, image_view image, image_view mask) 
 
     tensor_data output_data = transfer_from_backend(model.output);
     image_data output = migan_process_output(output_data.as_f32(), image.extent, model.params);
-    image_set_alpha(output, mask);
-    return output;
+    image_data mask_resized = image_scale(mask, image.extent);
+    return image_alpha_composite(output, image, mask_resized);
 }
 
 //

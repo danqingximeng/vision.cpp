@@ -41,12 +41,14 @@ You can download the model and input image here: [MobileSAM-F16.gguf](https://hu
 
 #### CLI
 
-Find the `vision-cli` executable in the `bin` folder and run it to generate the mask:
+Find the `vision-cli` executable in the `bin` folder and run it to generate the result:
 
 ```sh
-vision-cli -m MobileSAM-F16.gguf -i input.jpg -p 420 120 650 430 -o mask.png
+vision-cli sam -m MobileSAM-F16.gguf -i input.jpg -p 420 120 650 430 -o output.png
 ```
-Pass `--composite output.png` to composite input and mask. Use `--help` for more options.
+`-o` writes the composited cutout (foreground on transparent background). Pass
+`--mask mask.png` to also write the raw mask. At least one of `-o`/`--mask` is
+required. Use `--help` for more options.
 
 #### API
 
@@ -82,7 +84,7 @@ and infrastructure.
 [Model download](https://huggingface.co/Acly/MobileSAM-GGUF/tree/main) | [Paper (arXiv)](https://arxiv.org/pdf/2306.14289.pdf) | [Repository (GitHub)](https://github.com/ChaoningZhang/MobileSAM) | [Segment-Anything-Model](https://segment-anything.com/) | License: Apache-2
 
 ```sh
-vision-cli sam -m MobileSAM-F16.gguf -i input.png -p 300 200 -o mask.png --composite comp.png
+vision-cli sam -m MobileSAM-F16.gguf -i input.png -p 300 200 -o comp.png --mask mask.png
 ```
 
 #### BiRefNet
@@ -92,7 +94,7 @@ vision-cli sam -m MobileSAM-F16.gguf -i input.png -p 300 200 -o mask.png --compo
 [Model download](https://huggingface.co/Acly/BiRefNet-GGUF/tree/main) | [Paper (arXiv)](https://arxiv.org/pdf/2401.03407) | [Repository (GitHub)](https://github.com/ZhengPeng7/BiRefNet) | License: MIT
 
 ```sh
-vision-cli birefnet -m BiRefNet-lite-F16.gguf -i input.png -o mask.png --composite comp.png
+vision-cli birefnet -m BiRefNet-lite-F16.gguf -i input.png -o comp.png --mask mask.png
 ```
 
 #### Depth-Anything V2

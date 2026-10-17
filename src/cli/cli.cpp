@@ -11,6 +11,12 @@
 #include <string_view>
 #include <vector>
 
+#ifdef _WIN32
+#include <io.h>
+#else
+#include <unistd.h>
+#endif
+
 namespace visp {
 using std::filesystem::path;
 
@@ -28,19 +34,23 @@ Commands:
 
 Options:
     -i, --input <image1> [<image2> ...]  Input image(s)
-    -o, --output <file>                  Output file (default: output.png)
+    -o, --output <file>                  Output image (sam/birefnet: composited RGBA cutout)
+    --mask <file>                        Output mask image (sam and birefnet only)
     -m, --model <file>                   Model file (.gguf)
     -p, --prompt <x> [<y> ...]           Prompt (eg. pixel coordinates)
     -b, --backend <cpu|gpu>              Backend type (default: auto)
+    -f, --force                          Overwrite existing output files without asking
     -h, --help                           Print usage and exit
-    --composite <file>                   Composite input image with mask
     --tile <size>                        Tile size to split large images
     --host <addr>                        Server bind address (serve only, default: 127.0.0.1)
     --port <n>                           Server port (serve only, default: 8180)
 
+At least one of -o/--output or --mask is required (both are ignored by serve).
+
 Examples:
-    vision-cli sam -m MobileSAM-F16.gguf -i image.jpg -p 100 200 -o mask.png
-    vision-cli birefnet -m BiRefNet-F16.gguf -i image.jpg -o mask.png --composite output.png
+    vision-cli sam -m MobileSAM-F16.gguf -i image.jpg -p 100 200 -o output.png --mask mask.png
+    vision-cli birefnet -m BiRefNet-F16.gguf -i image.jpg -o output.png
+    vision-cli birefnet -m BiRefNet-F16.gguf -i image.jpg --mask mask.png
     vision-cli migan -m MIGAN-F16.gguf -i image.jpg mask.png -o output.png
     vision-cli esrgan -m ESRGAN-x4-F16.gguf -i image.jpg -o upscaled.png
     vision-cli serve -m RMBG-2.0-F16.gguf -b gpu --port 8180
@@ -96,6 +106,47 @@ void require_inputs(std::span<char const* const> inputs, int n_required, char co
     }
 }
 
+void validate_outputs(cli_args const& r) {
+    if (r.command == cli_command::none || r.command == cli_command::serve) {
+        return;
+    }
+    bool mask_supported = r.command == cli_command::sam || r.command == cli_command::birefnet;
+    if (r.mask && !mask_supported) {
+        throw except("--mask is only supported by the sam and birefnet commands");
+    }
+    if (!r.output && !r.mask) {
+        throw except("Missing output path: expected -o/--output and/or --mask <file>");
+    }
+}
+
+bool stdin_is_interactive() {
+#ifdef _WIN32
+    return _isatty(_fileno(stdin)) != 0;
+#else
+    return isatty(fileno(stdin)) != 0;
+#endif
+}
+
+void confirm_overwrite(cli_args const& r) {
+    if (r.force || r.command == cli_command::none || r.command == cli_command::serve) {
+        return;
+    }
+    for (char const* path_str : {r.output, r.mask}) {
+        if (!path_str || !exists(path(path_str))) {
+            continue;
+        }
+        if (!stdin_is_interactive()) {
+            throw except("Output file exists: {} (use -f/--force to overwrite)", path_str);
+        }
+        printf("Output file exists: %s\nOverwrite? [y/N] ", path_str);
+        fflush(stdout);
+        char answer[16] = {};
+        if (!fgets(answer, sizeof(answer), stdin) || (answer[0] != 'y' && answer[0] != 'Y')) {
+            throw except("Aborted: {} already exists (use -f/--force to overwrite)", path_str);
+        }
+    }
+}
+
 cli_args cli_parse(int argc, char** argv) {
     cli_args r;
     if (argc < 2) {
@@ -141,8 +192,10 @@ cli_args cli_parse(int argc, char** argv) {
             } else {
                 throw except("Unknown backend type '{}', must be one of: cpu, gpu", backend_arg);
             }
-        } else if (arg == "--composite") {
-            r.composite = next_arg(argc, argv, i);
+        } else if (arg == "--mask") {
+            r.mask = next_arg(argc, argv, i);
+        } else if (arg == "-f" || arg == "--force") {
+            r.force = true;
         } else if (arg == "--tile") {
             r.tile_size = parse_int(next_arg(argc, argv, i));
         } else if (arg == "--host") {
@@ -153,6 +206,8 @@ cli_args cli_parse(int argc, char** argv) {
             throw except("Unknown argument: {}\n{}", arg, short_usage);
         }
     }
+    validate_outputs(r);
+    confirm_overwrite(r);
     return r;
 }
 
@@ -323,21 +378,7 @@ void composite_image_with_mask(image_view image, image_view mask, char const* ou
     if (!output_path) {
         return;
     }
-    image_data image_f32_data;
-    if (!is_float(image.format)) {
-        image_f32_data = image_u8_to_f32(image, image_format::rgba_f32);
-        image = image_f32_data;
-    }
-    image_data mask_f32_data;
-    if (!is_float(mask.format)) {
-        mask_f32_data = image_u8_to_f32(mask, image_format::alpha_f32);
-        mask = mask_f32_data;
-    }
-
-    image_data foreground = image_estimate_foreground(image, mask);
-
-    image_data output = image_f32_to_u8(foreground, image_format::rgba_u8);
-    image_save(output, output_path);
+    image_save(image_composite_foreground(image, mask), output_path);
     printf("-> image composited and saved to %s\n", output_path);
 }
 
@@ -423,16 +464,19 @@ void run_sam(cli_args const& args) {
     tensor_data iou = transfer_from_backend(output.iou);
     tensor_data mask_data = transfer_from_backend(output.masks);
 
-    image_data mask = sam_process_mask(mask_data.as_f32(), 2, image.extent, params);
+    auto ious = iou.as_f32().subspan(0, 3);
+    int mask_index = int(std::max_element(ious.begin(), ious.end()) - ious.begin());
+    image_data mask = sam_process_mask(mask_data.as_f32(), mask_index, image.extent, params);
     printf("complete (%s)\n", t_post.elapsed_str());
 
-    image_save(mask, args.output);
-
-    auto ious = iou.as_f32();
     printf("-> estimated accuracy (IoU): %f, %f, %f\n", ious[0], ious[1], ious[2]);
-    printf("-> mask saved to %s\n", args.output);
 
-    composite_image_with_mask(image, mask, args.composite);
+    if (args.mask) {
+        image_save(mask, args.mask);
+        printf("-> mask saved to %s\n", args.mask);
+    }
+
+    composite_image_with_mask(image, mask, args.output);
 }
 
 //
@@ -473,10 +517,12 @@ void run_birefnet(cli_args const& args) {
     image_view mask_output(extent, mask_data.as_f32());
     image_data mask_resized = image_scale(mask_output, image.extent);
     image_data mask = image_f32_to_u8(mask_resized, image_format::alpha_u8);
-    image_save(mask, args.output);
-    printf("-> mask saved to %s\n", args.output);
+    if (args.mask) {
+        image_save(mask, args.mask);
+        printf("-> mask saved to %s\n", args.mask);
+    }
 
-    composite_image_with_mask(image, mask_resized, args.composite);
+    composite_image_with_mask(image, mask, args.output);
 }
 
 //

@@ -147,7 +147,7 @@ step2() {
   LD_LIBRARY_PATH="$PACKAGE_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
     "$PACKAGE_PREFIX/bin/vision-cli" depthany -m "$model_path" \
     -i "$REPO_DIR/tests/input/wardrobe.jpg" \
-    -o "$WORK_DIR/cli_output.png"
+    -o "$WORK_DIR/cli_output.png" -f
   if [[ ! -f "$WORK_DIR/cli_output.png" ]]; then
     echo "vision-cli failed to produce output image" >&2
     exit 1

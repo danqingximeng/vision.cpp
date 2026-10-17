@@ -111,16 +111,26 @@ std::vector<uint8_t> decode_data_uri(std::string_view value) {
 //
 // image decoding / encoding (in memory)
 
-image_data decode_image(std::string const& bytes, int channels) {
+image_data decode_image(std::string const& bytes, int req_channels = 0) {
     int width = 0, height = 0, comp = 0;
     uint8_t* pixels =
         stbi_load_from_memory(reinterpret_cast<stbi_uc const*>(bytes.data()), int(bytes.size()),
-                              &width, &height, &comp, channels);
+                              &width, &height, &comp, req_channels);
     if (!pixels) {
         throw http_error(400, "invalid_request_error",
                          std::string("failed to decode image: ") + stbi_failure_reason());
     }
-    image_format format = channels == 1 ? image_format::alpha_u8 : image_format::rgba_u8;
+    // format follows the layout of the returned pixels, same as image_load()
+    int out_channels = req_channels ? req_channels : comp;
+    image_format format;
+    switch (out_channels) {
+        case 1: format = image_format::alpha_u8; break;
+        case 3: format = image_format::rgb_u8; break;
+        case 4: format = image_format::rgba_u8; break;
+        default:
+            stbi_image_free(pixels);
+            throw http_error(400, "invalid_request_error", "unsupported channel count");
+    }
     return image_data{{width, height}, format, std::unique_ptr<uint8_t[]>(pixels)};
 }
 
@@ -149,11 +159,14 @@ std::vector<uint8_t> encode_png(image_view const& img) {
 // post-processing: turn the raw model output into the image we return
 
 image_data postprocess(model_family family, image_data&& result, image_view input, bool want_mask) {
-    if (family == model_family::birefnet && !want_mask) {
-        image_data input_f32 = image_u8_to_f32(input, image_format::rgba_f32);
-        image_data mask_f32 = image_u8_to_f32(image_view(result), image_format::alpha_f32);
-        image_data foreground = image_estimate_foreground(input_f32, mask_f32);
-        return image_f32_to_u8(foreground, image_format::rgba_u8);
+    // default output matches the CLI -o/--output result image
+    if (!want_mask) {
+        switch (family) {
+            case model_family::sam:
+            case model_family::birefnet:
+                return image_composite_foreground(input, image_view(result));
+            default: break;
+        }
     }
     return std::move(result);
 }
@@ -230,10 +243,14 @@ image_data run_inference(server_state& state, httplib::Request const& req) {
                          "sam requires ?prompt=x,y (point) or ?prompt=x,y,x2,y2 (box)");
     }
 
-    image_data input = decode_image(image_bytes, 4);
+    // decode with native channel counts, identical to the CLI image_load()
+    image_data input = decode_image(image_bytes);
     image_data mask;
     if (!mask_bytes.empty()) {
-        mask = decode_image(mask_bytes, 1);
+        mask = decode_image(mask_bytes);
+        if (mask.format != image_format::alpha_u8) {
+            mask = image_to_mask(mask);
+        }
     }
 
     // --- run the model, one request at a time

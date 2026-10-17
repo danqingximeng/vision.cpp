@@ -13,13 +13,14 @@ enum class cli_command { none, sam, birefnet, depth_anything, migan, esrgan, ser
 struct cli_args {
     cli_command command = cli_command::none;
     std::vector<char const*> inputs;   // -i --input
-    char const* output = "output.png"; // -o --output
+    char const* output = nullptr;      // -o --output: result image (composite for sam/birefnet)
+    char const* mask = nullptr;        // --mask: mask image (sam/birefnet only)
+    bool force = false;                // -f --force: overwrite existing outputs
     char const* model = nullptr;       // -m --model
     std::vector<char const*> prompt;   // -p --prompt
     std::optional<backend_type> bknd_type; // -b --backend
 
-    char const* composite = nullptr; // --composite
-    int tile_size = -1;              // --tile
+    int tile_size = -1; // --tile
 
     char const* host = "127.0.0.1"; // --host
     int port = 8180;                // --port

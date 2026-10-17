@@ -162,6 +162,11 @@ VISP_API void image_erosion(image_view const& src, image_span const& dst, int ra
 VISP_API image_data image_estimate_foreground(
     image_view const& img, image_view const& mask, int radius = 30);
 
+// Ready-to-save cutout of `img` shaped by `mask`: RGB = estimated foreground colour, alpha = mask
+// * accepts any u8/f32 input formats (converted to what image_estimate_foreground expects)
+// * returns an rgba_u8 image with a transparent background
+VISP_API image_data image_composite_foreground(image_view img, image_view mask);
+
 // Composite foreground and background images using alpha mask: `dst = fg * alpha + bg * (1-alpha)`
 VISP_API void image_alpha_composite(
     image_view const& fg, image_view const& bg, image_view const& mask, image_span const& dst);

@@ -475,6 +475,20 @@ image_data image_estimate_foreground(image_view const& img, image_view const& ma
     return blur_fusion_foreground_estimator(img, fg, blur_bg, mask, 3).first;
 }
 
+image_data image_composite_foreground(image_view img, image_view mask) {
+    image_data img_data;
+    if (!is_float(img.format)) {
+        img_data = image_u8_to_f32(img, image_format::rgba_f32);
+        img = image_view(img_data);
+    }
+    image_data mask_data;
+    if (!is_float(mask.format)) {
+        mask_data = image_u8_to_f32(mask, image_format::alpha_f32);
+        mask = image_view(mask_data);
+    }
+    return image_f32_to_u8(image_estimate_foreground(img, mask), image_format::rgba_u8);
+}
+
 template <typename FG, typename BG>
 void alpha_composite(
     image_source<FG> fg, image_source<BG> bg, image_source<uint8_t> alpha, image_target<u8x4> out) {

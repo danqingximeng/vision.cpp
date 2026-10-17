@@ -56,9 +56,8 @@ struct model_funcs<model_family::depth_anything> {
         if (inputs.size() != 1) {
             throw except("depthany: expected 1 input image, got {}", inputs.size());
         }
-        image_data result_f32 = depthany_compute(m, inputs[0]);
-        image_data normalized = image_normalize(result_f32);
-        return image_f32_to_u8(normalized, image_format::alpha_u8);
+        // depthany_compute output is already normalized, same as the CLI -o depth image
+        return image_f32_to_u8(depthany_compute(m, inputs[0]), image_format::alpha_u8);
     }
 };
 
